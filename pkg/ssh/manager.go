@@ -77,7 +77,11 @@ func (km *KeyManager) ListKeys() ([]string, error) {
 	var keys []string
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	for scanner.Scan() {
-		keys = append(keys, scanner.Text())
+		line := strings.TrimSpace(scanner.Text())
+		// Skip empty lines and comments
+		if line != "" && !strings.HasPrefix(line, "#") {
+			keys = append(keys, line)
+		}
 	}
 
 	return keys, scanner.Err()
@@ -86,24 +90,32 @@ func (km *KeyManager) ListKeys() ([]string, error) {
 func (km *KeyManager) RemoveKey(keyToRemove string) error {
 	authorizedKeysPath := filepath.Join(km.sshDir, "authorized_keys")
 	
-	keys, err := km.ListKeys()
+	content, err := ioutil.ReadFile(authorizedKeysPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read authorized_keys: %v", err)
 	}
 
-	var newKeys []string
-	for _, key := range keys {
-		if key != keyToRemove {
-			newKeys = append(newKeys, key)
+	var newLines []string
+	scanner := bufio.NewScanner(strings.NewReader(string(content)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmedLine := strings.TrimSpace(line)
+		// Keep comments, empty lines, and non-matching keys
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") || trimmedLine != keyToRemove {
+			newLines = append(newLines, line)
 		}
 	}
 
-	content := strings.Join(newKeys, "\n")
-	if len(newKeys) > 0 {
-		content += "\n"
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error scanning file: %v", err)
 	}
 
-	if err := ioutil.WriteFile(authorizedKeysPath, []byte(content), 0600); err != nil {
+	newContent := strings.Join(newLines, "\n")
+	if len(newLines) > 0 {
+		newContent += "\n"
+	}
+
+	if err := ioutil.WriteFile(authorizedKeysPath, []byte(newContent), 0600); err != nil {
 		return fmt.Errorf("failed to write updated authorized_keys: %v", err)
 	}
 
